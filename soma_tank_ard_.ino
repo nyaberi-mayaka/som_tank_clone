@@ -13,18 +13,21 @@ LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars
 const int trigPin = 9;
 const int echoPin = 10;
 const int relayPin = 11;
+const int overridePin = 12;
 // defines variables
 long duration;
 float distance;
+int overrider;
 void setup()
 {
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(relayPin, OUTPUT); // sets the relay trigger pin as output
+  pinMode(overridePin, INPUT);
   lcd.init();                      // initialize the lcd 
   lcd.backlight();
   Serial.begin(9600);
-  digitalWrite(relayPin, HIGH); // turns actuator off
+  digitalWrite(relayPin, LOW); // turns actuator off
 }
 
 void loop()
@@ -40,23 +43,39 @@ void loop()
   duration = pulseIn(echoPin, HIGH);
   // Calculating the distance
   distance = duration * 0.017;
+  overrider = digitalRead(12);
   if (distance > 20.0)
   {
-    digitalWrite(relayPin, LOW); // turns actuator on.
+    digitalWrite(relayPin, HIGH); // turns actuator on.
     print(distance);
     lcd.setCursor(0, 3);
     clr(3);
-    lcd.setCursor(4, 3);
-    lcd.print("ON");
+    lcd.setCursor(0, 3);
+    if (overrider)
+    {
+      lcd.print("ON");
+    }
+    else
+    {
+      lcd.print("ON");
+    }
+    
   }
   else
   {
-    digitalWrite(relayPin, HIGH);
+    digitalWrite(relayPin, LOW);
     print(distance);
     lcd.setCursor(0, 3);
     clr(3);
-    lcd.setCursor(4, 3);
-    lcd.print("OFF");
+    lcd.setCursor(0, 3);
+    if (overrider)
+    {
+      lcd.print("ON");
+    }
+    else
+    {
+      lcd.print("OFF");
+    }
   }
   
   delay(1000);
