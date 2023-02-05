@@ -10,10 +10,10 @@
 
 LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars and 4 line display
 // defines pins numbers
-const int trigPin = 9;
-const int echoPin = 10;
-const int relayPin = 11;
-const int overridePin = 12;
+const int trigPin = 18;
+const int echoPin = 19;
+const int relayPin = 5;
+const int overridePin = 17;
 // defines variables
 long duration;
 float distance;
