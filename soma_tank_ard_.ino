@@ -59,12 +59,12 @@ void loop()
       if (digitalRead(17) || relayPin)
       {
         lcd.print("ON");
-      }      
+      }
     }
 
     else
     {
-      digitalWrite(relayPin, LOW);            
+      digitalWrite(relayPin, LOW);
       prints(distance);
       clr(3, 0);
       if (digitalRead(17))
