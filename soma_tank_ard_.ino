@@ -1,23 +1,31 @@
-/*
- * Displays text sent over the serial port (e.g. from the Serial Monitor) on
- * an attached LCD.
- * YWROBOT
- *Compatible with the Arduino IDE 1.0
- *Library version:1.1
- */
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 
+// timed events
+const unsigned long clearTrigPin = 2;
+const unsigned long pulseTime = 10;
+const unsigned long displayTime = 1000;
+
+unsigned long prevTime1 = 0;
+unsigned long prevTime2 = 0;
+unsigned long prevTime3 = 0;
+
+unsigned long currentTime;
+
+void clr(int line, int col);
+void prints(float distance);
+
 LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars and 4 line display
 // defines pins numbers
-const int trigPin = 18;
-const int echoPin = 19;
-const int relayPin = 5;
-const int overridePin = 17;
+const byte trigPin = 18; // ultrasonic trigger pin
+const byte echoPin = 19; // ultrasonic echo pin
+const byte relayPin = 5; //relay trigger pin
+const byte overridePin = 17; // manual override pin
+
 // defines variables
 long duration;
 float distance;
-int overrider;
+
 void setup()
 {
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
@@ -32,7 +40,7 @@ void setup()
 
 void loop()
 {
-    // Clears the trigPin
+  // Clears the trigPin
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   // Sets the trigPin on HIGH state for 10 micro seconds
@@ -43,51 +51,42 @@ void loop()
   duration = pulseIn(echoPin, HIGH);
   // Calculating the distance
   distance = duration * 0.017;
-  overrider = digitalRead(12);
   if (distance > 20.0)
   {
-    digitalWrite(relayPin, HIGH); // turns actuator on.
-    print(distance);
-    lcd.setCursor(0, 3);
-    clr(3);
-    lcd.setCursor(0, 3);
-    if (overrider)
-    {
-      lcd.print("ON");
+      digitalWrite(relayPin, HIGH); // turns actuator on.
+      prints(distance);
+      clr(3, 0);
+      if (digitalRead(17) || relayPin)
+      {
+        lcd.print("ON");
+      }      
     }
+
     else
     {
-      lcd.print("ON");
+      digitalWrite(relayPin, LOW);            
+      prints(distance);
+      clr(3, 0);
+      if (digitalRead(17))
+      {
+        lcd.print("ON");
+      }
+      else
+      {
+        lcd.print("OFF");
+      }
     }
-    
-  }
-  else
-  {
-    digitalWrite(relayPin, LOW);
-    print(distance);
-    lcd.setCursor(0, 3);
-    clr(3);
-    lcd.setCursor(0, 3);
-    if (overrider)
-    {
-      lcd.print("ON");
-    }
-    else
-    {
-      lcd.print("OFF");
-    }
-  }
-  
-  delay(1000);
 }
 
-void print(float distance)
+/**
+ * prints - prints recursive strings on the LCD display
+ * @distance: the distance to display
+ */
+void prints(float distance)
 {
   lcd.setCursor(0, 0); // Sets the location at which subsequent text written to the LCD will be displayed
   lcd.print("DISTANCE: "); // Prints string "Distance" on the LCD
-  lcd.setCursor(0, 1);
-  clr(1);
-  lcd.setCursor(4, 1);
+  clr(1, 4);
   lcd.print(distance); // Prints the distance value from the sensor
   lcd.print(" cm");
   lcd.setCursor(0, 2);
@@ -97,12 +96,17 @@ void print(float distance)
   Serial.println(distance);
 }
 
-void clr(int line)
+/*
+* clr - clear the specified @line of the LCD display and sets the cursor at the start of the line
+* @line: the line of the LCD display to be cleared.
+* @col: where to set the cursor within the specified @line.
+*/
+void clr(int line, int col)
 {               
-        lcd.setCursor(0,line);
+        lcd.setCursor(0, line);
         for(int n = 0; n < 16; n++) // 16 indicates symbols in line. For 2x20 LCD write - 20
         {
                 lcd.print(" ");
         }
-        lcd.setCursor(0, line);
+        lcd.setCursor(col, line);
 }
