@@ -1,5 +1,7 @@
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 
 // timed events
 const unsigned long clearTrigPin = 2;
@@ -15,6 +17,13 @@ unsigned long currentTime;
 void clr(int line, int col);
 void prints(float distance);
 
+const char* ssid = "kinko";
+const char* password = "the quadzilla";
+const char* mqtt_server = "91.121.93.94";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
 LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars and 4 line display
 // defines pins numbers
 const byte trigPin = 18; // ultrasonic trigger pin
@@ -25,6 +34,9 @@ const byte overridePin = 17; // manual override pin
 // defines variables
 long duration;
 float distance;
+long lastMsg = 0;
+char msg[50];
+int value = 0;
 
 void setup()
 {
@@ -34,12 +46,23 @@ void setup()
   pinMode(overridePin, INPUT);
   lcd.init();                      // initialize the lcd 
   lcd.backlight();
-  Serial.begin(9600);
+  Serial.begin(115200);
   digitalWrite(relayPin, LOW); // turns actuator off
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+  reconnect(); // to make sure the connection was successful.
 }
 
 void loop()
 {
+  if (!client.connected())
+  {
+    client.connect("espClient");
+  }
+  client.subscribe("esp32/output");
+  client.loop();
+
   // Clears the trigPin
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -51,6 +74,19 @@ void loop()
   duration = pulseIn(echoPin, HIGH);
   // Calculating the distance
   distance = duration * 0.017;
+
+  long now = millis();
+  if (now - lastMsg > 5000) {
+    lastMsg = now;
+
+    // Convert the value to a char array
+    char distString[8];
+    dtostrf(distance, 1, 2, distString);
+    Serial.print("Distance: ");
+    Serial.println(distString);
+    client.publish("esp32/distance", distString);
+  }
+
   if (distance > 20.0)
   {
       digitalWrite(relayPin, HIGH); // turns actuator on.
@@ -109,4 +145,69 @@ void clr(int line, int col)
                 lcd.print(" ");
         }
         lcd.setCursor(col, line);
+}
+
+void setup_wifi() {
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageDist;
+
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageDist += (char)message[i];
+  }
+  Serial.println();
+
+  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
+  // Changes the output state according to the message
+  if (String(topic) == "esp32/output") {
+    Serial.print("Changing output to ");
+    if(messageDist == "on"){
+      Serial.println("on");
+      digitalWrite(relayPin, HIGH);
+    }
+    else if(messageDist == "off"){
+      Serial.println("off");
+      digitalWrite(relayPin, LOW);
+    }
+  }
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("espClient")) {
+      Serial.println("connected");
+      // Subscribe
+      client.subscribe("esp32/output");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+    }
+  }
 }
