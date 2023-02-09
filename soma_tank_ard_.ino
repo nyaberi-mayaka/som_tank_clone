@@ -3,16 +3,31 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-// timed events
-const unsigned long clearTrigPin = 2;
-const unsigned long pulseTime = 10;
-const unsigned long displayTime = 1000;
+// defines pins numbers
+#define trigPin 18 // ultrasonic trigger pin
+#define echoPin 19 // ultrasonic echo pin
+#define relayPin 5 //relay trigger pin
+#define overridePin 17 // manual override pin
 
-unsigned long prevTime1 = 0;
-unsigned long prevTime2 = 0;
-unsigned long prevTime3 = 0;
+// defines variables
+long duration;
+float distance;
+float timeDuration;
+long lastMsg = 0;
+char msg[50];
+int value = 0;
 
-unsigned long currentTime;
+unsigned long timerStarts = 0;
+unsigned long StartTime = micros();
+bool timer = false;
+const unsigned long HIGH_TRIGGER = 10;
+const unsigned long LOW_TRIGGER = 2;
+
+enum SensorStatus {
+  TRIG_LOW,
+  TRIG_HIGH,
+  ECHO_HIGH
+};
 
 void clr(int line, int col);
 void prints(float distance);
@@ -25,21 +40,14 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 
 LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars and 4 line display
-// defines pins numbers
-const byte trigPin = 18; // ultrasonic trigger pin
-const byte echoPin = 19; // ultrasonic echo pin
-const byte relayPin = 5; //relay trigger pin
-const byte overridePin = 17; // manual override pin
 
-// defines variables
-long duration;
-float distance;
-long lastMsg = 0;
-char msg[50];
-int value = 0;
+SensorStatus sensorStatus = TRIG_LOW;
 
-void setup()
-{
+bool isTimerReady(const unsigned long Sec) {
+  return (micros() - timerStarts) < Sec;
+}
+
+void setup(void) {
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(relayPin, OUTPUT); // sets the relay trigger pin as output
@@ -54,41 +62,58 @@ void setup()
   reconnect(); // to make sure the connection was successful.
 }
 
-void loop()
-{
+void loop(void) {
   if (!client.connected())
   {
     client.connect("espClient");
   }
   client.subscribe("esp32/output");
-  client.loop();
-
-  // Clears the trigPin
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  // Sets the trigPin on HIGH state for 10 micro seconds
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  // Reads the echoPin, returns the sound wave travel time in microseconds
-  duration = pulseIn(echoPin, HIGH);
-  // Calculating the distance
-  distance = duration * 0.017;
-
-  long now = millis();
-  if (now - lastMsg > 5000) {
-    lastMsg = now;
-
-    // Convert the value to a char array
-    char distString[8];
-    dtostrf(distance, 1, 2, distString);
-    Serial.print("Distance: ");
-    Serial.println(distString);
-    client.publish("esp32/distance", distString);
+  //client.loop();
+  
+  switch (sensorStatus) {
+  case TRIG_LOW: {
+    digitalWrite(trigPin, LOW);
+    timerStarts = micros();
+    if (isTimerReady(LOW_TRIGGER)) {
+      sensorStatus = TRIG_HIGH;
+    }
   }
+  break;
 
-  if (distance > 20.0)
-  {
+  case TRIG_HIGH: {
+    digitalWrite(trigPin, HIGH);
+    timerStarts = micros();
+    if (isTimerReady(HIGH_TRIGGER)) {
+      sensorStatus = ECHO_HIGH;
+    }
+  }
+  break;
+
+  case ECHO_HIGH: {
+    if (!timer) {
+      Serial.print("Microseconds Passed in initialization: ");
+      Serial.println(micros() - StartTime);
+      timer = !timer;
+      Serial.println("Starting to Measure");
+    }
+    digitalWrite(trigPin, LOW);
+    timeDuration = pulseIn(echoPin, HIGH);
+    distance = timeDuration * 0.017;
+    long now = millis();
+    if (now - lastMsg > 5000) {
+      lastMsg = now;
+      // Convert the value to a char array
+      char distString[8];
+      dtostrf(distance, 1, 2, distString);
+      Serial.print("Distance: ");
+      Serial.println(distString);
+      client.publish("esp32/distance", distString);
+    }
+    Serial.print("Measured: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+    if (distance > 20.0)
+    {
       digitalWrite(relayPin, HIGH); // turns actuator on.
       prints(distance);
       clr(3, 0);
@@ -112,6 +137,10 @@ void loop()
         lcd.print("OFF");
       }
     }
+    sensorStatus = TRIG_LOW;
+  }
+  break;
+  }
 }
 
 /**
