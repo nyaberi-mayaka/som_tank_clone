@@ -3,6 +3,10 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
+LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars and 4 line display
+WiFiClient espClient;
+PubSubClient client(espClient);
+
 // defines pins numbers
 #define trigPin 18 // ultrasonic trigger pin
 #define echoPin 19 // ultrasonic echo pin
@@ -12,42 +16,16 @@
 // defines variables
 long duration;
 float distance;
-float timeDuration;
 long lastMsg = 0;
-char msg[50];
-int value = 0;
-
-unsigned long timerStarts = 0;
-unsigned long StartTime = micros();
-bool timer = false;
-const unsigned long HIGH_TRIGGER = 10;
-const unsigned long LOW_TRIGGER = 2;
-
-enum SensorStatus {
-  TRIG_LOW,
-  TRIG_HIGH,
-  ECHO_HIGH
-};
-
-void clr(int line, int col);
-void prints(float distance);
+long prevTime = 0;
+byte pumpStatus = LOW;
 
 const char* ssid = "kinko";
 const char* password = "the quadzilla";
 const char* mqtt_server = "91.121.93.94";
 
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-LiquidCrystal_I2C lcd(0x27,16,4);  // set the LCD address to 0x27 for a 16 chars and 4 line display
-
-SensorStatus sensorStatus = TRIG_LOW;
-
-bool isTimerReady(const unsigned long Sec) {
-  return (micros() - timerStarts) < Sec;
-}
-
-void setup(void) {
+void setup()
+{
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
   pinMode(relayPin, OUTPUT); // sets the relay trigger pin as output
@@ -61,71 +39,48 @@ void setup(void) {
   client.setCallback(callback);
   reconnect(); // to make sure the connection was successful.
 }
-
-void loop(void) {
-  if (!client.connected())
+void loop()
+{
+    // Clears the trigPin
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  // Sets the trigPin on HIGH state for 10 micro seconds
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  // Reads the echoPin, returns the sound wave travel time in microseconds
+  duration = pulseIn(echoPin, HIGH);
+  // Calculating the distance
+  distance = duration * 0.017;
+  while (!client.connected())
   {
     client.connect("espClient");
   }
+
   client.subscribe("esp32/output");
-  //client.loop();
-  
-  switch (sensorStatus) {
-  case TRIG_LOW: {
-    digitalWrite(trigPin, LOW);
-    timerStarts = micros();
-    if (isTimerReady(LOW_TRIGGER)) {
-      sensorStatus = TRIG_HIGH;
-    }
-  }
-  break;
-
-  case TRIG_HIGH: {
-    digitalWrite(trigPin, HIGH);
-    timerStarts = micros();
-    if (isTimerReady(HIGH_TRIGGER)) {
-      sensorStatus = ECHO_HIGH;
-    }
-  }
-  break;
-
-  case ECHO_HIGH: {
-    if (!timer) {
-      Serial.print("Microseconds Passed in initialization: ");
-      Serial.println(micros() - StartTime);
-      timer = !timer;
-      Serial.println("Starting to Measure");
-    }
-    digitalWrite(trigPin, LOW);
-    timeDuration = pulseIn(echoPin, HIGH);
-    distance = timeDuration * 0.017;
-    long now = millis();
-    if (now - lastMsg > 5000) {
-      lastMsg = now;
-      // Convert the value to a char array
-      char distString[8];
-      dtostrf(distance, 1, 2, distString);
-      Serial.print("Distance: ");
-      Serial.println(distString);
-      client.publish("esp32/distance", distString);
-    }
-    Serial.print("Measured: ");
-    Serial.print(distance);
-    Serial.println(" cm");
-    if (distance > 20.0)
+  client.loop();
+   long now = millis();
+   if (now - lastMsg >= 1000) {
+        lastMsg = now;
+        // Convert the value to a char array
+        char distString[8];
+        dtostrf(distance, 1, 2, distString);
+        client.publish("esp32/distance", distString);
+   }
+  if (distance > 20.0 && distance < 400.0)
+  {
+    //pumpState = HIGH;
+    prints(distance);
+    clr(3, 0);
+    if (digitalRead(17) || relayPin)
     {
-      digitalWrite(relayPin, HIGH); // turns actuator on.
-      prints(distance);
-      clr(3, 0);
-      if (digitalRead(17) || relayPin)
-      {
-        lcd.print("ON");
-      }
+       lcd.print("ON");        
     }
+   }
 
     else
     {
-      digitalWrite(relayPin, LOW);
+      //pumpState = LOW;
       prints(distance);
       clr(3, 0);
       if (digitalRead(17))
@@ -136,11 +91,11 @@ void loop(void) {
       {
         lcd.print("OFF");
       }
-    }
-    sensorStatus = TRIG_LOW;
-  }
-  break;
-  }
+     }
+    client.setCallback(callback);
+    digitalWrite(relayPin, pumpStatus);
+    client.loop();
+    delay(1500);
 }
 
 /**
@@ -152,13 +107,12 @@ void prints(float distance)
   lcd.setCursor(0, 0); // Sets the location at which subsequent text written to the LCD will be displayed
   lcd.print("DISTANCE: "); // Prints string "Distance" on the LCD
   clr(1, 4);
-  lcd.print(distance); // Prints the distance value from the sensor
-  lcd.print(" cm");
+  lcd.print(String(distance) + " cm"); // Prints the distance value from the sensor
+  //lcd.print(" cm");
   lcd.setCursor(0, 2);
   lcd.print("PUMP STATE: ");
       // Prints the distance on the Serial Monitor
-  Serial.print("Distance: ");
-  Serial.println(distance);
+   Serial.println("Distance: " + String(distance) + " cm");   
 }
 
 /*
@@ -180,14 +134,16 @@ void setup_wifi() {
   delay(10);
   // We start by connecting to a WiFi network
   Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.println("Connecting to " + String(ssid));
 
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+    long now = millis();
+      if (now - prevTime > 100) {
+        prevTime = now;
+        Serial.print(".");
+      }
   }
 
   Serial.println("");
@@ -197,9 +153,7 @@ void setup_wifi() {
 }
 
 void callback(char* topic, byte* message, unsigned int length) {
-  Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
+  Serial.println("Message arrived on topic: " + String(topic) + ". Message: ");
   String messageDist;
 
   for (int i = 0; i < length; i++) {
@@ -214,11 +168,11 @@ void callback(char* topic, byte* message, unsigned int length) {
     Serial.print("Changing output to ");
     if(messageDist == "on"){
       Serial.println("on");
-      digitalWrite(relayPin, HIGH);
+      pumpStatus = HIGH;
     }
     else if(messageDist == "off"){
       Serial.println("off");
-      digitalWrite(relayPin, LOW);
+      pumpStatus = LOW;
     }
   }
 }
@@ -233,9 +187,7 @@ void reconnect() {
       // Subscribe
       client.subscribe("esp32/output");
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      Serial.println("failed, rc=" + String(client.state()) + " try again in 5 seconds");
       // Wait 5 seconds before retrying
     }
   }
