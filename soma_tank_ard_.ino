@@ -19,6 +19,7 @@ float distance;
 long lastMsg = 0;
 long prevTime = 0;
 byte pumpStatus = LOW;
+byte pumpState = LOW;
 
 const char* ssid = "kinko";
 const char* password = "the quadzilla";
@@ -52,6 +53,7 @@ void loop()
   duration = pulseIn(echoPin, HIGH);
   // Calculating the distance
   distance = duration * 0.017;
+  client.loop();
   while (!client.connected())
   {
     client.connect("espClient");
@@ -69,7 +71,7 @@ void loop()
    }
   if (distance > 20.0 && distance < 400.0)
   {
-    //pumpState = HIGH;
+    pumpState = HIGH;
     prints(distance);
     clr(3, 0);
     if (digitalRead(17) || relayPin)
@@ -80,7 +82,7 @@ void loop()
 
     else
     {
-      //pumpState = LOW;
+      pumpState = LOW;
       prints(distance);
       clr(3, 0);
       if (digitalRead(17))
@@ -93,9 +95,29 @@ void loop()
       }
      }
     client.setCallback(callback);
-    digitalWrite(relayPin, pumpStatus);
-    client.loop();
-    delay(1500);
+    if(pumpState)
+    {
+      if (!pumpStatus)
+      {
+        digitalWrite(relayPin, LOW);
+      }
+      else
+      {
+        digitalWrite(relayPin, HIGH);
+      }
+    }
+    else if (!pumpState)
+    {
+      if (pumpStatus)
+      {
+        digitalWrite(relayPin, HIGH);
+      }
+      else
+      {
+        digitalWrite(relayPin, LOW);
+      }
+    }
+    delay(1000);
 }
 
 /**
